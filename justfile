@@ -1,7 +1,10 @@
 set positional-arguments := true
 
 release *args:
-	npx tsx scripts/release.ts "$@"
+	pnpm --filter=publish release "$@"
+
+preview-publish REF:
+	gh workflow run .github/workflows/publish.yaml --ref "{{ REF }}"
 
 dev-shell *args:
 	pnpm --filter @rivet-dev/agent-os-dev-shell dev-shell -- "$@"

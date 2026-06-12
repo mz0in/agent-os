@@ -1,0 +1,344 @@
+# =============================================================================
+# Publish
+# =============================================================================
+#
+# Single workflow for preview publish AND release cuts. Both triggers are
+# manual (workflow_dispatch). The build + npm publish steps run identically for
+# both modes. Only the build profile (debug vs release), npm dist-tag, and the
+# release-only tail (crates.io, GitHub release assets, R2, git tag) differ.
+#
+# Triggers and mapping:
+#   workflow_dispatch (no version)   → trigger=branch  npm_tag=<sanitized branch>  build=debug
+#   workflow_dispatch (with version) → trigger=release npm_tag=latest              build=release
+#                                       (npm_tag becomes `rc` if version contains `-rc.`, or
+#                                        `next` if `latest=false`)
+#
+# Preview publishes are fast: debug sidecar build, npm only (the binary ships
+# inside the npm platform package), crates dry-run. Releases add the crates.io
+# publish, GitHub release assets, R2 mirror, and git tag.
+# =============================================================================
+
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.2.0 or 0.2.0-rc.1). Leave empty for preview publish on the dispatched branch."
+        required: false
+        type: string
+      latest:
+        description: "Tag as @latest (release only)"
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  R2_BUCKET: rivet-releases
+  R2_ENDPOINT: https://2a94c6a0ced8d35ea63cddc86c2681e7.r2.cloudflarestorage.com
+  # Platform list kept in sync with packages/sidecar-binary/npm/* and the build
+  # matrix below. Also consumed by scripts/publish discovery via SIDECAR_PLATFORMS.
+  # arm64 is deferred until its portability fix is verified end-to-end.
+  SIDECAR_PLATFORMS: "linux-x64-gnu"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # context — resolve PublishContext once, pin as job outputs
+  # ---------------------------------------------------------------------------
+  context:
+    name: "Context"
+    runs-on: ubuntu-latest
+    outputs:
+      trigger: ${{ steps.ctx.outputs.trigger }}
+      version: ${{ steps.ctx.outputs.version }}
+      npm_tag: ${{ steps.ctx.outputs.npm_tag }}
+      sha: ${{ steps.ctx.outputs.sha }}
+      latest: ${{ steps.ctx.outputs.latest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install publish scripts
+        run: pnpm install --frozen-lockfile --filter=publish
+      - id: ctx
+        name: Resolve publish context
+        run: pnpm --filter=publish exec tsx src/ci/bin.ts context-output
+
+  # ---------------------------------------------------------------------------
+  # build-sidecar — debug (preview) or release (release) sidecar binary
+  # ---------------------------------------------------------------------------
+  build-sidecar:
+    needs: [context]
+    name: "Build sidecar (${{ matrix.platform }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64-gnu
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: ${{ matrix.target }}-${{ needs.context.outputs.trigger }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/.rusty_v8
+          key: ${{ runner.os }}-${{ matrix.target }}-rusty-v8-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-rusty-v8-
+      # The V8 bridge build script (invoked by cargo build.rs) needs the pnpm
+      # workspace installed so esbuild and v8-bridge.source.js are available.
+      - run: pnpm install --frozen-lockfile
+      - name: Build sidecar binary
+        id: build
+        run: |
+          if [ "${{ needs.context.outputs.trigger }}" = "release" ]; then
+            cargo build --release -p agent-os-sidecar --target ${{ matrix.target }}
+            echo "bin=target/${{ matrix.target }}/release/agent-os-sidecar" >> "$GITHUB_OUTPUT"
+          else
+            cargo build -p agent-os-sidecar --target ${{ matrix.target }}
+            echo "bin=target/${{ matrix.target }}/debug/agent-os-sidecar" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.platform }}
+          path: ${{ steps.build.outputs.bin }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # publish-npm — place binaries, build TS, publish all packages (all triggers)
+  # ---------------------------------------------------------------------------
+  publish-npm:
+    needs: [context, build-sidecar]
+    name: "Publish npm"
+    if: ${{ !cancelled() && needs.build-sidecar.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sidecar-*
+          path: artifacts
+      - name: Place sidecar binaries into platform packages
+        run: |
+          set -euo pipefail
+          for p in $SIDECAR_PLATFORMS; do
+            bin="artifacts/sidecar-${p}/agent-os-sidecar"
+            dest="packages/sidecar-binary/npm/${p}"
+            if [ ! -f "$bin" ]; then
+              echo "::error::missing sidecar binary artifact for ${p}"
+              exit 1
+            fi
+            if [ ! -d "$dest" ]; then
+              echo "::error::missing platform package dir $dest"
+              exit 1
+            fi
+            cp "$bin" "${dest}/agent-os-sidecar"
+            chmod +x "${dest}/agent-os-sidecar"
+            echo "Placed binary for ${p}"
+          done
+      - name: Bump package versions for build (version-only)
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts bump-versions \
+            --version ${{ needs.context.outputs.version }} \
+            --version-only
+      - name: Build TypeScript packages
+        run: |
+          npx turbo build \
+            --filter='!./registry/software/*' \
+            --filter='!@rivet-dev/agent-os-playground' \
+            --filter='!./examples/*'
+      - name: Finalize package versions for publish (inject optionalDeps)
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts bump-versions \
+            --version ${{ needs.context.outputs.version }}
+      - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts publish-npm \
+            --tag ${{ needs.context.outputs.npm_tag }} \
+            --parallel 16 \
+            --retries 3 \
+            ${{ needs.context.outputs.trigger == 'release' && '--release-mode' || '' }}
+
+  # ---------------------------------------------------------------------------
+  # release-assets — GitHub release + sidecar/pyodide assets + R2 (release only)
+  # ---------------------------------------------------------------------------
+  release-assets:
+    needs: [context, build-sidecar]
+    name: "Release assets"
+    if: ${{ !cancelled() && needs.build-sidecar.result == 'success' && needs.context.outputs.trigger == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --filter=publish
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sidecar-*
+          path: artifacts
+      - name: Stage release assets
+        env:
+          VERSION: ${{ needs.context.outputs.version }}
+        run: |
+          set -euo pipefail
+          declare -A PLATFORM_TARGET=(
+            [linux-x64-gnu]=x86_64-unknown-linux-gnu
+            [linux-arm64-gnu]=aarch64-unknown-linux-gnu
+          )
+          # Stage release assets: platform binaries + externalized pyodide assets
+          # (downloaded by the published execution crate's build.rs).
+          mkdir -p release-assets
+          for p in $SIDECAR_PLATFORMS; do
+            bin="artifacts/sidecar-${p}/agent-os-sidecar"
+            if [ -f "$bin" ]; then
+              target="${PLATFORM_TARGET[$p]}"
+              cp "$bin" "release-assets/agent-os-sidecar-${target}"
+            else
+              echo "::warning::no binary for ${p}"
+            fi
+          done
+          for f in \
+            pyodide.asm.wasm \
+            pyodide.asm.js \
+            python_stdlib.zip \
+            numpy-2.2.5-cp313-cp313-pyodide_2025_0_wasm32.whl \
+            pandas-2.3.3-cp313-cp313-pyodide_2025_0_wasm32.whl; do
+            cp "crates/execution/assets/pyodide/${f}" "release-assets/${f}"
+          done
+      - name: Create GitHub release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.context.outputs.version }}
+          NPM_TAG: ${{ needs.context.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "v${VERSION}" >/dev/null 2>&1; then
+            PRERELEASE=""
+            if [ "${NPM_TAG}" = "rc" ]; then PRERELEASE="--prerelease"; fi
+            gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes $PRERELEASE
+          fi
+          # --clobber so re-runs overwrite assets idempotently.
+          gh release upload "v${VERSION}" release-assets/* --clobber
+      - name: Upload sidecar binaries to R2 (best-effort)
+        env:
+          R2_RELEASES_ACCESS_KEY_ID: ${{ secrets.R2_RELEASES_ACCESS_KEY_ID }}
+          R2_RELEASES_SECRET_ACCESS_KEY: ${{ secrets.R2_RELEASES_SECRET_ACCESS_KEY }}
+          VERSION: ${{ needs.context.outputs.version }}
+          SHA: ${{ needs.context.outputs.sha }}
+          LATEST: ${{ needs.context.outputs.latest }}
+        run: |
+          set -uo pipefail
+          if [ -z "${R2_RELEASES_ACCESS_KEY_ID:-}" ] || [ -z "${R2_RELEASES_SECRET_ACCESS_KEY:-}" ]; then
+            echo "R2 credentials not configured; skipping R2 upload (GitHub release assets are authoritative)."
+            exit 0
+          fi
+          set -e
+          pnpm --filter=publish exec tsx src/ci/bin.ts upload-r2 \
+            --source "$GITHUB_WORKSPACE/release-assets" --sha "$SHA"
+          pnpm --filter=publish exec tsx src/ci/bin.ts copy-r2 \
+            --sha "$SHA" --version "$VERSION" --latest "$LATEST"
+
+  # ---------------------------------------------------------------------------
+  # publish-crates — crates.io (dry-run on preview, full publish on release)
+  # ---------------------------------------------------------------------------
+  publish-crates:
+    needs: [context, build-sidecar, release-assets]
+    name: "Publish crates.io"
+    if: ${{ !cancelled() && needs.build-sidecar.result == 'success' && (needs.release-assets.result == 'success' || needs.release-assets.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/.rusty_v8
+          key: ${{ runner.os }}-x86_64-unknown-linux-gnu-rusty-v8-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-x86_64-unknown-linux-gnu-rusty-v8-
+      - run: pnpm install --frozen-lockfile
+      - name: Bump Cargo versions
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts bump-versions \
+            --version ${{ needs.context.outputs.version }} \
+            --version-only
+      - name: Stage vendored V8 bridge bundles + base-filesystem for publishing
+        run: |
+          set -euo pipefail
+          for crate in execution v8-runtime; do
+            out="crates/${crate}/assets/generated"
+            mkdir -p "$out"
+            node packages/core/scripts/build-v8-bridge.mjs --out-dir "$out"
+          done
+          # The generated bundles are gitignored, and `cargo package` honors
+          # gitignore. Force them into the git index so they get packaged into
+          # the published crate (consumed by build_support.rs at build time).
+          git add -f crates/execution/assets/generated crates/v8-runtime/assets/generated
+          # Refresh the vendored base-filesystem fixtures used by published crates.
+          cp packages/core/fixtures/base-filesystem.json crates/kernel/assets/base-filesystem.json
+          cp packages/core/fixtures/base-filesystem.json crates/sidecar/assets/base-filesystem.json
+      - name: Dry-run crate publish (preview)
+        if: ${{ needs.context.outputs.trigger != 'release' }}
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts publish-crates \
+            --version ${{ needs.context.outputs.version }} \
+            --dry-run \
+            --allow-dirty
+      - name: Publish crates (release)
+        if: ${{ needs.context.outputs.trigger == 'release' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          pnpm --filter=publish exec tsx src/ci/bin.ts publish-crates \
+            --version ${{ needs.context.outputs.version }} \
+            --allow-dirty

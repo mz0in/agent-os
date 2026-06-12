@@ -5,6 +5,7 @@ packages:
   - registry/agent/*
   - registry/file-system/*
   - registry/tool/*
+  - scripts/publish
 
 ignoredBuiltDependencies:
   - '@clerk/shared'
