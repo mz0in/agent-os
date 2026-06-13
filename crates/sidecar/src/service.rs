@@ -3658,7 +3658,8 @@ where
             .remove(process_id)
             .unwrap_or_default();
         let stderr = stderr.trim();
-        let message = if stderr.is_empty() {
+        let layout_hint = symlinked_node_modules_hint(stderr);
+        let base = if stderr.is_empty() {
             format!(
                 "ACP process exited while handling {method} (exit code {exit_code}); no stderr captured"
             )
@@ -3667,12 +3668,20 @@ where
                 "ACP process exited while handling {method} (exit code {exit_code}); stderr: {stderr}"
             )
         };
+        // When the adapter died trying to read a package from a pnpm `.pnpm`
+        // store path that the VM cannot see (symlinked/non-hoisted node_modules),
+        // prepend an actionable explanation instead of leaving the raw ENOENT.
+        let message = match layout_hint {
+            Some(hint) => format!("{hint}\n\n{base}"),
+            None => base,
+        };
         JsonRpcError {
             code: -32000,
             message,
             data: Some(json!({
                 "exitCode": exit_code,
                 "stderr": stderr,
+                "moduleLayoutHint": layout_hint.is_some(),
             })),
         }
     }
@@ -4026,4 +4035,65 @@ pub(crate) fn python_error(error: PythonExecutionError) -> SidecarError {
 
 pub(crate) fn vfs_error(error: VfsError) -> SidecarError {
     SidecarError::Kernel(error.to_string())
+}
+
+/// Actionable guidance shown when an agent adapter fails because its packages live
+/// in a symlinked (non-hoisted) `node_modules` whose pnpm store is not visible in
+/// the VM. Mounting host `node_modules` is a bind mount, so a symlinked layout
+/// (pnpm default, yarn-berry) does not resolve inside the VM: Node canonicalizes a
+/// module to its store realpath (`node_modules/.pnpm/...`) which the guest `fs`
+/// cannot read. A flat (hoisted) layout is required.
+const HOISTED_NODE_MODULES_GUIDANCE: &str = "Agent OS can't load this agent: its node_modules uses a symlinked layout (pnpm / yarn-berry) whose package store isn't visible inside the VM. A flat (hoisted) node_modules is required.\n  - pnpm        -> add `node-linker=hoisted` to .npmrc, then reinstall\n  - yarn berry  -> set `nodeLinker: node-modules` in .yarnrc.yml (not PnP)\n  - npm / yarn classic / bun -> already flat, no change needed";
+
+/// Detect, from an adapter's captured stderr, the symlinked-`node_modules`
+/// failure signature: a missing-file error on a path inside a pnpm `.pnpm` store
+/// (which escapes the VM module-access mount). Returns the actionable guidance to
+/// fold into the surfaced error, or `None` when the failure is unrelated.
+///
+/// Kept deliberately specific (an ENOENT-class error AND a `node_modules/.pnpm`
+/// path) so it never fires on unrelated adapter crashes.
+fn symlinked_node_modules_hint(stderr: &str) -> Option<&'static str> {
+    let mentions_store = stderr.contains("node_modules/.pnpm")
+        || stderr.contains("node_modules\\.pnpm");
+    if !mentions_store {
+        return None;
+    }
+    let missing_file = stderr.contains("ENOENT")
+        || stderr.contains("no such file or directory")
+        || stderr.contains("Cannot find module");
+    if !missing_file {
+        return None;
+    }
+    Some(HOISTED_NODE_MODULES_GUIDANCE)
+}
+
+#[cfg(test)]
+mod symlinked_node_modules_hint_tests {
+    use super::symlinked_node_modules_hint;
+
+    #[test]
+    fn matches_pnpm_store_enoent() {
+        // The real pi-coding-agent failure: getPackageDir() falls back to a
+        // dist/package.json inside the unreachable .pnpm store.
+        let stderr = "Error: ENOENT: no such file or directory, open '/root/node_modules/.pnpm/@mariozechner+pi-coding-agent@0.60.0_x/node_modules/@mariozechner/pi-coding-agent/dist/package.json'";
+        assert!(symlinked_node_modules_hint(stderr).is_some());
+    }
+
+    #[test]
+    fn ignores_enoent_outside_pnpm_store() {
+        let stderr = "Error: ENOENT: no such file or directory, open '/tmp/scratch/config.json'";
+        assert!(symlinked_node_modules_hint(stderr).is_none());
+    }
+
+    #[test]
+    fn ignores_pnpm_path_without_missing_file() {
+        let stderr = "loaded /root/node_modules/.pnpm/some-pkg@1.0.0/node_modules/some-pkg/index.js";
+        assert!(symlinked_node_modules_hint(stderr).is_none());
+    }
+
+    #[test]
+    fn ignores_unrelated_failure() {
+        let stderr = "Error: connect ECONNREFUSED 127.0.0.1:443";
+        assert!(symlinked_node_modules_hint(stderr).is_none());
+    }
 }
