@@ -5,8 +5,8 @@
 	"description": "Per-page documentation examples, type-checked against the interim @rivet-dev/agentos types package (resolved via tsconfig paths to packages/agentos/src).",
 	"type": "module",
 	"dependencies": {
-		"rivetkit": "2.3.0-rc.12",
-		"@rivetkit/react": "2.3.0-rc.12",
+		"rivetkit": "0.0.0-feat-dylib-actor-plugin.c44621f",
+		"@rivetkit/react": "0.0.0-feat-dylib-actor-plugin.c44621f",
 		"react": "^19",
 		"react-dom": "^19"
 	},

@@ -111,6 +111,7 @@ export const siteConfig = {
 							label: "Advanced",
 							items: [
 								{ slug: "docs/architecture/agent-sessions", label: "Agent Sessions" },
+								{ slug: "docs/architecture/sessions-persistence", label: "Sessions & Persistence" },
 								{ slug: "docs/architecture/processes", label: "Processes" },
 								{ slug: "docs/architecture/filesystem", label: "Filesystem" },
 								{ slug: "docs/architecture/networking", label: "Networking" },

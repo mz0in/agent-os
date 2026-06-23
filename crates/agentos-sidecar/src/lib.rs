@@ -1,0 +1,25 @@
+#![forbid(unsafe_code)]
+
+//! Agent OS native sidecar wrapper.
+
+mod acp_extension;
+
+pub use acp_extension::AcpExtension;
+
+pub fn extensions() -> Vec<Box<dyn secure_exec_sidecar::Extension>> {
+    vec![Box::new(AcpExtension::new())]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agentos_protocol::ACP_EXTENSION_NAMESPACE;
+
+    #[test]
+    fn extensions_register_acp_namespace() {
+        let extensions = extensions();
+
+        assert_eq!(extensions.len(), 1);
+        assert_eq!(extensions[0].namespace(), ACP_EXTENSION_NAMESPACE);
+    }
+}

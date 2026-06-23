@@ -1,0 +1,13 @@
+[package]
+name = "agentos-sidecar-browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Browser Agent OS sidecar wrapper"
+
+[dependencies]
+agentos-protocol = { workspace = true }
+agentos-sidecar = { workspace = true }
+secure-exec-bridge = { workspace = true }
+secure-exec-sidecar-browser = { workspace = true }

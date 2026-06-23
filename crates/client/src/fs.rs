@@ -190,7 +190,7 @@ pub enum SnapshotExportKind {
     SnapshotExport,
 }
 
-/// `{ format: "agent-os-filesystem-snapshot-v1"; filesystem: { entries } }`.
+/// `{ format: "agentos-filesystem-snapshot-v1"; filesystem: { entries } }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilesystemSnapshotExport {
     pub format: String,
@@ -772,6 +772,28 @@ impl AgentOs {
         self.kernel_readdir(path).await
     }
 
+    /// List directory entries with their resolved type, mirroring the TS `readDirWithTypes` used by
+    /// the ACP `fs/readDir` host request. `.`/`..` are filtered by the caller. A symlink is reported
+    /// as a symlink (lstat-style, not followed); other entries are stat'd as directory vs file.
+    pub(crate) async fn acp_read_dir_with_types(&self, path: &str) -> Result<Vec<VirtualDirEntry>> {
+        Self::assert_safe_absolute_path(path)?;
+        let names = self.kernel_readdir(path).await?;
+        let mut entries = Vec::with_capacity(names.len());
+        for name in names {
+            if name == "." || name == ".." {
+                continue;
+            }
+            let full_path = Self::join_child(path, &name);
+            let stat = self.kernel_lstat(&full_path).await?;
+            entries.push(VirtualDirEntry {
+                name,
+                is_directory: stat.is_directory,
+                is_symbolic_link: stat.is_symbolic_link,
+            });
+        }
+        Ok(entries)
+    }
+
     /// Recursive BFS listing; symlinks recorded but NOT descended; a stat failure aborts the call.
     pub async fn readdir_recursive(
         &self,
@@ -869,7 +891,7 @@ impl AgentOs {
         Ok(RootSnapshotExport {
             kind: SnapshotExportKind::SnapshotExport,
             source: FilesystemSnapshotExport {
-                format: String::from("agent-os-filesystem-snapshot-v1"),
+                format: String::from("agentos-filesystem-snapshot-v1"),
                 filesystem: FilesystemSnapshotEntries { entries },
             },
         })

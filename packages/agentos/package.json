@@ -1,7 +1,7 @@
 {
 	"name": "@rivet-dev/agentos",
 	"version": "0.2.0-rc.3",
-	"description": "User-facing Agent OS integration for RivetKit actors (interim types-now noop stub)",
+	"description": "Agent OS actor for RivetKit - thin TS forwarder that loads the native actor plugin via RivetKit's native-plugin ABI.",
 	"license": "Apache-2.0",
 	"keywords": [
 		"rivetkit",
@@ -14,18 +14,15 @@
 	"sideEffects": false,
 	"files": [
 		"dist",
-		"package.json"
+		"package.json",
+		"README.md"
 	],
 	"type": "module",
 	"exports": {
 		".": {
 			"import": {
-				"types": "./dist/mod.d.ts",
-				"default": "./dist/mod.js"
-			},
-			"require": {
-				"types": "./dist/mod.d.cts",
-				"default": "./dist/mod.cjs"
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
 			}
 		},
 		"./client": {
@@ -36,20 +33,12 @@
 				},
 				"types": "./dist/client.d.ts",
 				"default": "./dist/client.js"
-			},
-			"require": {
-				"types": "./dist/client.d.cts",
-				"default": "./dist/client.cjs"
 			}
 		},
 		"./react": {
 			"import": {
 				"types": "./dist/react.d.ts",
 				"default": "./dist/react.js"
-			},
-			"require": {
-				"types": "./dist/react.d.cts",
-				"default": "./dist/react.cjs"
 			}
 		}
 	},
@@ -57,12 +46,17 @@
 		"node": ">=22.0.0"
 	},
 	"scripts": {
-		"build": "tsup src/mod.ts src/client.ts src/react.ts",
-		"check-types": "tsc --noEmit"
+		"build": "tsup src/index.ts src/client.ts src/react.ts",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
 	},
 	"dependencies": {
-		"rivetkit": "2.3.0-rc.12",
-		"@rivetkit/react": "2.3.0-rc.12"
+		"@agentos-software/common": "catalog:",
+		"@rivet-dev/agentos-core": "workspace:*",
+		"@rivet-dev/agentos-sidecar": "workspace:*",
+		"@rivetkit/react": "0.0.0-feat-dylib-actor-plugin.c44621f",
+		"rivetkit": "0.0.0-feat-dylib-actor-plugin.c44621f",
+		"zod": "^4.1.11"
 	},
 	"peerDependencies": {
 		"react": "^18 || ^19",
@@ -77,7 +71,9 @@
 		}
 	},
 	"devDependencies": {
+		"@types/node": "^22.19.15",
 		"tsup": "^8.4.0",
-		"typescript": "^5.7.3"
+		"typescript": "^5.7.3",
+		"vitest": "^2.1.8"
 	}
 }

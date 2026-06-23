@@ -1,0 +1,154 @@
+# Agent OS ACP extension protocol schema, version 1.
+# This schema is intentionally standalone. It imports no secure-exec schema.
+
+type JsonUtf8 str
+
+type AcpRuntimeKind enum {
+  JAVA_SCRIPT
+  PYTHON
+  WEB_ASSEMBLY
+}
+
+type AcpCreateSessionRequest struct {
+  agentType: str
+  runtime: AcpRuntimeKind
+  adapterEntrypoint: str
+  cwd: str
+  args: list<str>
+  env: map<str><str>
+  protocolVersion: i32
+  clientCapabilities: JsonUtf8
+  mcpServers: JsonUtf8
+  skipOsInstructions: bool
+  additionalInstructions: optional<str>
+}
+
+type AcpSessionRequest struct {
+  sessionId: str
+  method: str
+  params: optional<JsonUtf8>
+}
+
+type AcpGetSessionStateRequest struct {
+  sessionId: str
+}
+
+type AcpCloseSessionRequest struct {
+  sessionId: str
+}
+
+# Resume a session that exists in durable storage but is not live in the current
+# VM (e.g. after a Rivet actor slept and woke with a fresh VM). The sidecar runs
+# the stateless resume state machine (native session/load when the agent supports
+# it, else a fresh session/new + transcript continuation preamble). `cwd`/`env`
+# describe the fresh adapter launch used by the fallback tier. `transcriptPath`,
+# when present, is a guest-readable path the fallback preamble points the agent at.
+type AcpResumeSessionRequest struct {
+  sessionId: str
+  agentType: str
+  transcriptPath: optional<str>
+  cwd: str
+  env: map<str><str>
+}
+
+type AcpRequest union {
+  AcpCreateSessionRequest |
+  AcpSessionRequest |
+  AcpGetSessionStateRequest |
+  AcpCloseSessionRequest |
+  AcpResumeSessionRequest
+}
+
+type AcpSessionCreatedResponse struct {
+  sessionId: str
+  pid: optional<u32>
+  modes: optional<JsonUtf8>
+  configOptions: list<JsonUtf8>
+  agentCapabilities: optional<JsonUtf8>
+  agentInfo: optional<JsonUtf8>
+}
+
+type AcpSessionRpcResponse struct {
+  sessionId: str
+  response: JsonUtf8
+}
+
+type AcpSessionStateResponse struct {
+  sessionId: str
+  agentType: str
+  processId: str
+  pid: optional<u32>
+  closed: bool
+  exitCode: optional<i32>
+  modes: optional<JsonUtf8>
+  configOptions: list<JsonUtf8>
+  agentCapabilities: optional<JsonUtf8>
+  agentInfo: optional<JsonUtf8>
+}
+
+type AcpSessionClosedResponse struct {
+  sessionId: str
+}
+
+# Result of AcpResumeSessionRequest. `sessionId` is the live ACP session id after
+# resume: equal to the requested id for native loads, or the freshly assigned id
+# for the fallback tier (the caller remaps external -> live). `mode` is "native"
+# (session/load|resume succeeded) or "fallback" (a new session was created and the
+# transcript-continuation preamble was armed for the next prompt).
+type AcpSessionResumedResponse struct {
+  sessionId: str
+  mode: str
+}
+
+type AcpErrorResponse struct {
+  code: str
+  message: str
+}
+
+type AcpResponse union {
+  AcpSessionCreatedResponse |
+  AcpSessionRpcResponse |
+  AcpSessionStateResponse |
+  AcpSessionClosedResponse |
+  AcpSessionResumedResponse |
+  AcpErrorResponse
+}
+
+type AcpSessionEvent struct {
+  sessionId: str
+  notification: JsonUtf8
+}
+
+type AcpEvent union {
+  AcpSessionEvent
+}
+
+type AcpPermissionCallback struct {
+  sessionId: str
+  permissionId: str
+  params: JsonUtf8
+}
+
+type AcpHostRequestCallback struct {
+  sessionId: str
+  request: JsonUtf8
+}
+
+type AcpCallback union {
+  AcpPermissionCallback |
+  AcpHostRequestCallback
+}
+
+type AcpPermissionCallbackResponse struct {
+  permissionId: str
+  reply: str
+}
+
+type AcpHostRequestCallbackResponse struct {
+  response: optional<JsonUtf8>
+}
+
+type AcpCallbackResponse union {
+  AcpPermissionCallbackResponse |
+  AcpHostRequestCallbackResponse
+}

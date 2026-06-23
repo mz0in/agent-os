@@ -192,7 +192,7 @@ export async function bumpCargoVersions(
 	// crate deps (path = "../secure-exec/...") are intentionally NOT bumped — they
 	// track the sibling crate version.
 	next = next.replace(
-		/((?:agent-os|secure-exec)-[a-z0-9-]+ = \{ path = "crates\/[^"]+", version = ")[^"]+(" \})/g,
+		/((?:agentos|agent-os|secure-exec)-[a-z0-9-]+ = \{ path = "crates\/[^"]+", version = ")[^"]+(" \})/g,
 		`$1${version}$2`,
 	);
 
@@ -228,7 +228,7 @@ export async function updateSourceFiles(
 	}> = [
 		{
 			path: "examples/**/package.json",
-			find: /"(@rivet-dev\/agent-os-[^"]+)": "\^?[0-9]+\.[0-9]+\.[0-9]+(?:-[^"]+)?"/g,
+			find: /"(@rivet-dev\/agentos-[^"]+)": "\^?[0-9]+\.[0-9]+\.[0-9]+(?:-[^"]+)?"/g,
 			replace: `"$1": "^${version}"`,
 			required: false,
 		},
