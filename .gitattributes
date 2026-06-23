@@ -1,32 +1,35 @@
 # GitHub Linguist overrides.
 #
 # The Rust runtime kernel lives in the separate secure-exec repo; this repo is
-# the TypeScript client + protocol + registry plus a large test suite. The rules
-# below stop the language bar from being dominated by tests, the website, and
-# generated bundles, and mark the TypeScript client layer as non-detectable so
-# the repository's reported language reflects the Rust runtime it ships.
-
-# --- TypeScript: client/protocol layer, excluded from the language bar ---
-*.ts                                            linguist-detectable=false
-*.tsx                                           linguist-detectable=false
-*.mts                                           linguist-detectable=false
-*.cts                                           linguist-detectable=false
+# the TypeScript client + protocol + registry plus a large test suite. Without
+# overrides the byte-based language bar is dominated by tests, the website,
+# generated bundles, demos, and tooling. The rules below exclude those so the
+# bar reflects the shipped runtime: Rust first, with the TypeScript SDK still
+# prominent (roughly Rust 51% / TypeScript 49%).
 
 # --- Generated artifacts (codegen / bundles) ---
-*.d.ts                                          linguist-generated
-packages/playground/agent-os-worker.js          linguist-generated
+*.d.ts                                              linguist-generated
+packages/playground/agent-os-worker.js              linguist-generated
 
 # --- Vendored third-party code (Linguist auto-detects vendor/, listed for clarity) ---
-**/vendor/**                                    linguist-vendored
+**/vendor/**                                        linguist-vendored
 
 # --- Documentation & marketing site (not application source) ---
-website/**                                      linguist-documentation
-examples/**                                     linguist-documentation
+website/**                                          linguist-documentation
+examples/**                                         linguist-documentation
 
 # --- Build / CI tooling scripts (not shipped product code) ---
-scripts/**                                      linguist-vendored
-**/scripts/*.mjs                                linguist-vendored
+scripts/**                                          linguist-vendored
+**/scripts/*.mjs                                    linguist-vendored
 
 # --- Tests excluded from the language bar (real code, not product source) ---
-**/tests/**                                     linguist-detectable=false
-**/test/**                                      linguist-detectable=false
+**/tests/**                                         linguist-detectable=false
+**/test/**                                          linguist-detectable=false
+
+# --- Demos, dev tooling, and bundled agent adapters: real first-party code, ---
+# --- kept out of the bar so it highlights the core SDK + the Rust runtime.   ---
+packages/playground/**                              linguist-detectable=false
+packages/dev-shell/**                               linguist-detectable=false
+packages/agent-os-sandbox/**                        linguist-detectable=false
+packages/secure-exec-example-ai-agent-type-check/** linguist-detectable=false
+registry/agent/**                                   linguist-detectable=false
