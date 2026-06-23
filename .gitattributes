@@ -1,0 +1,32 @@
+# GitHub Linguist overrides.
+#
+# The Rust runtime kernel lives in the separate secure-exec repo; this repo is
+# the TypeScript client + protocol + registry plus a large test suite. The rules
+# below stop the language bar from being dominated by tests, the website, and
+# generated bundles, and mark the TypeScript client layer as non-detectable so
+# the repository's reported language reflects the Rust runtime it ships.
+
+# --- TypeScript: client/protocol layer, excluded from the language bar ---
+*.ts                                            linguist-detectable=false
+*.tsx                                           linguist-detectable=false
+*.mts                                           linguist-detectable=false
+*.cts                                           linguist-detectable=false
+
+# --- Generated artifacts (codegen / bundles) ---
+*.d.ts                                          linguist-generated
+packages/playground/agent-os-worker.js          linguist-generated
+
+# --- Vendored third-party code (Linguist auto-detects vendor/, listed for clarity) ---
+**/vendor/**                                    linguist-vendored
+
+# --- Documentation & marketing site (not application source) ---
+website/**                                      linguist-documentation
+examples/**                                     linguist-documentation
+
+# --- Build / CI tooling scripts (not shipped product code) ---
+scripts/**                                      linguist-vendored
+**/scripts/*.mjs                                linguist-vendored
+
+# --- Tests excluded from the language bar (real code, not product source) ---
+**/tests/**                                     linguist-detectable=false
+**/test/**                                      linguist-detectable=false
