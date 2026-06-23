@@ -1,35 +1,31 @@
-# GitHub Linguist overrides.
+# GitHub Linguist overrides — make the language bar reflect the Rust runtime.
 #
-# The Rust runtime kernel lives in the separate secure-exec repo; this repo is
-# the TypeScript client + protocol + registry plus a large test suite. Without
-# overrides the byte-based language bar is dominated by tests, the website,
-# generated bundles, demos, and tooling. The rules below exclude those so the
-# bar reflects the shipped runtime: Rust first, with the TypeScript SDK still
-# prominent (roughly Rust 51% / TypeScript 49%).
+# The Rust kernel is the substance of this repo; the rest is the TypeScript
+# client/protocol/registry plus a large test suite (the kernel itself lives in
+# the secure-exec repo). We count Rust in full, plus the core client surface
+# (the AgentOS client entrypoint + its sidecar wire layer) and the core JS
+# binary-resolver shim, and exclude everything else (tests, demos, tooling,
+# generated bundles, the website, and the remaining client/registry code).
+# Result: roughly Rust 70% / TypeScript 29%.
 
-# --- Generated artifacts (codegen / bundles) ---
-*.d.ts                                              linguist-generated
-packages/playground/agent-os-worker.js              linguist-generated
+# Default: TypeScript and JavaScript are not counted in the language bar...
+*.ts                                 linguist-detectable=false
+*.tsx                                linguist-detectable=false
+*.mts                                linguist-detectable=false
+*.cts                                linguist-detectable=false
+*.js                                 linguist-detectable=false
+*.cjs                                linguist-detectable=false
+*.mjs                                linguist-detectable=false
 
-# --- Vendored third-party code (Linguist auto-detects vendor/, listed for clarity) ---
-**/vendor/**                                        linguist-vendored
+# ...except the core client surface (SDK entrypoint + sidecar wire layer)...
+packages/core/src/agent-os.ts        linguist-detectable=true
+packages/core/src/sidecar/**         linguist-detectable=true
 
-# --- Documentation & marketing site (not application source) ---
-website/**                                          linguist-documentation
-examples/**                                         linguist-documentation
+# ...and the core binary-resolver shim.
+packages/sidecar-binary/index.js     linguist-detectable=true
 
-# --- Build / CI tooling scripts (not shipped product code) ---
-scripts/**                                          linguist-vendored
-**/scripts/*.mjs                                    linguist-vendored
-
-# --- Tests excluded from the language bar (real code, not product source) ---
-**/tests/**                                         linguist-detectable=false
-**/test/**                                          linguist-detectable=false
-
-# --- Demos, dev tooling, and bundled agent adapters: real first-party code, ---
-# --- kept out of the bar so it highlights the core SDK + the Rust runtime.   ---
-packages/playground/**                              linguist-detectable=false
-packages/dev-shell/**                               linguist-detectable=false
-packages/agent-os-sandbox/**                        linguist-detectable=false
-packages/secure-exec-example-ai-agent-type-check/** linguist-detectable=false
-registry/agent/**                                   linguist-detectable=false
+# Generated, vendored, and documentation content (also covers non-JS/TS files).
+*.d.ts                               linguist-generated
+**/vendor/**                         linguist-vendored
+website/**                           linguist-documentation
+examples/**                          linguist-documentation
