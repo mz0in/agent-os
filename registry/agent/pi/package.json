@@ -16,7 +16,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "tsc && node scripts/build-snapshot-bundle.mjs",
+		"build:snapshot": "node scripts/build-snapshot-bundle.mjs",
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
