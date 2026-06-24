@@ -63,6 +63,7 @@ export const siteConfig = {
 						{ slug: "docs/agents/codex", label: "Codex", attrs: { "data-icon-src": "/images/registry/codex.svg" }, badge: { text: "Coming Soon", variant: "caution" } },
 						{ slug: "docs/agents/amp", label: "Amp", attrs: { "data-icon-src": "/images/registry/amp.svg" }, badge: { text: "Coming Soon", variant: "caution" } },
 						{ slug: "docs/agents/opencode", label: "OpenCode", attrs: { "data-icon-src": "/images/registry/opencode.svg" }, badge: { text: "Coming Soon", variant: "caution" } },
+						{ slug: "docs/agents/custom", label: "Custom Agents", attrs: { "data-icon": "wrench" } },
 					],
 				},
 				{ slug: "docs/sessions", label: "Sessions & Transcripts", attrs: { "data-icon": "messages" } },
@@ -102,6 +103,14 @@ export const siteConfig = {
 				{ label: "API Reference", link: "/api", attrs: { target: "_blank" } },
 				{ slug: "docs/deployment", label: "Deploy" },
 				{
+					label: "Custom Software",
+					items: [
+						{ slug: "docs/custom-software/definition", label: "Definition" },
+						{ slug: "docs/custom-software/building-wasm", label: "Building Binaries" },
+						{ label: "Request Software", link: "https://github.com/rivet-dev/agent-os/issues/new/choose", attrs: { target: "_blank" } },
+					],
+				},
+				{
 					label: "Architecture",
 					items: [
 						{ slug: "docs/architecture", label: "Overview" },
@@ -127,6 +136,7 @@ export const siteConfig = {
 					label: "More",
 					items: [
 						{ slug: "docs/core", label: "Core SDK" },
+						{ slug: "docs/debugging", label: "Debugging", attrs: { "data-icon": "bug" } },
 						{ slug: "docs/benchmarks" },
 						{ slug: "docs/cost-evaluation", label: "Cost Evaluation" },
 					],
